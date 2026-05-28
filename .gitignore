@@ -10,6 +10,7 @@ dist/
 output/*
 !output/.gitkeep
 *.json
+!vercel.json
 !frontend/package.json
 !frontend/package-lock.json
 
