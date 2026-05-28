@@ -63,14 +63,37 @@ class PIBScraper:
         self.generator = ""
         self.proxies = []
         self.using_proxy = False
+        # Optional Google Apps Script whitelisted proxy tunnel
+        self.google_proxy_url = os.environ.get("GOOGLE_PROXY_URL", "").strip()
+
+    def _parse_set_cookie_header(self, cookie_header_str):
+        """Helper to parse raw Set-Cookie strings and populate the CookieJar."""
+        try:
+            from http.cookies import SimpleCookie
+            cookie = SimpleCookie()
+            cookie.load(cookie_header_str)
+            for key, morsel in cookie.items():
+                from http.cookiejar import Cookie
+                c = Cookie(
+                    version=0, name=key, value=morsel.value,
+                    port=None, port_specified=False,
+                    domain='.pib.gov.in', domain_specified=True, domain_initial_dot=True,
+                    path='/', path_specified=True,
+                    secure=True, expires=None, discard=True,
+                    comment=None, comment_url=None, rest={'HttpOnly': None}, rfc2109=False
+                )
+                self.cookie_jar.set_cookie(c)
+        except Exception as e:
+            if self.verbose:
+                log_warning(f"Failed to parse Set-Cookie header: {e}")
 
     def _fetch_indian_proxies(self):
         """Fetches fresh Indian proxies from Proxyscrape API to bypass geo-blocking."""
         if self.verbose:
             log_info("Fetching fresh Indian proxies for datacenter geo-bypass...")
         try:
-            # We fetch up to 30 fresh HTTP proxies from India (IN)
-            url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=IN"
+            # We fetch up to 30 fresh SSL-enabled proxies from India (IN)
+            url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=IN&ssl=yes"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             # Use raw urllib open to avoid existing cookies or proxy handlers
             with urllib.request.urlopen(req, context=self.ssl_context, timeout=10) as response:
@@ -84,10 +107,37 @@ class PIBScraper:
             self.proxies = []
         
     def _make_request(self, url, data=None):
-        """Sends an HTTP GET or POST request. If direct connection fails, falls back to rotating Indian proxies."""
+        """Sends an HTTP GET or POST request. If google_proxy_url is defined, routes through it. Otherwise falls back to rotating proxies."""
         req = urllib.request.Request(url, data=data, headers=self.headers)
         
-        # 1. Try direct connection first if we haven't locked onto using a proxy yet
+        # 1. Check if high-speed Google Apps Script tunnel is configured (whitelisted by gov firewalls)
+        if self.google_proxy_url:
+            try:
+                if self.verbose:
+                    log_info("Routing request through Google Apps Script whitelisted proxy tunnel...")
+                
+                query_params = {'url': url}
+                cookies = [c.name + '=' + c.value for c in self.cookie_jar]
+                if cookies:
+                    query_params['cookie'] = '; '.join(cookies)
+                    
+                target_url = self.google_proxy_url + "?" + urllib.parse.urlencode(query_params)
+                
+                proxy_req = urllib.request.Request(target_url, data=data, headers=self.headers)
+                with urllib.request.urlopen(proxy_req, context=self.ssl_context, timeout=25) as response:
+                    res_json = json.loads(response.read().decode('utf-8'))
+                    if 'error' in res_json:
+                        raise ConnectionError(res_json['error'])
+                        
+                    # Extract cookies and insert into session jar
+                    if res_json.get('cookie'):
+                        self._parse_set_cookie_header(res_json['cookie'])
+                        
+                    return res_json['content']
+            except Exception as e:
+                log_warning(f"Google Apps Script proxy tunnel failed ({e}). Falling back to proxy rotator...")
+        
+        # 2. Try direct connection first if we haven't locked onto using a proxy yet
         if not self.using_proxy:
             try:
                 with self.opener.open(req, timeout=12) as response:
