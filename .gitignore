@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+/frontend/node_modules/
+
+# Production builds
+dist/
+/frontend/dist/
+
+# Scraped Output Data (keep folder, ignore content)
+output/*
+!output/.gitkeep
+*.json
+!frontend/package.json
+!frontend/package-lock.json
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.*.local
+
+# Python files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Editor / System config
+.DS_Store
+.vscode/
+.idea/
+.project
+.pydevproject
