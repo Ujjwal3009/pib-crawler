@@ -28,7 +28,7 @@ import {
 const TRIAL_API_KEY = "AIzaSyBsg9u4CBQZ__MojXeP6ViI3orHNt0dCto";
 
 // Dynamic Backend URL for Production Deployments
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "https://pib-crawler-backend.onrender.com").replace(/\/$/, "");
 
 export default function App() {
   // Scraper controls
