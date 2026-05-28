@@ -251,7 +251,7 @@ export default function App() {
     };
 
     eventSource.onerror = (err) => {
-      logLine("Network connection lost or backend offline. Please verify FastAPI is running on port 8000.", "error");
+      logLine(`Network connection lost or backend offline. Please verify FastAPI is running at ${API_BASE_URL}.`, "error");
       setStatusState("error");
       eventSource.close();
     };
@@ -711,7 +711,7 @@ export default function App() {
                 </h3>
                 <p className="text-sm text-gray-400 mt-2 font-semibold">
                   {statusState === "error" 
-                    ? "Verify the FastAPI server is running on localhost:8000 and the dates are formatted correctly." 
+                    ? `Verify the FastAPI server is running at ${API_BASE_URL} and the dates are formatted correctly.` 
                     : "No announcements were discovered in the selected range. Try querying a different set of dates."}
                 </p>
               </div>

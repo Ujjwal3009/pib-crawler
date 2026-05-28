@@ -113,7 +113,12 @@ async def scrape_stream(
                 # Yield control back to event loop for a fraction of a second
                 await asyncio.sleep(0.05)
 
-    return StreamingResponse(sse_generator(), media_type="text/event-stream")
+    headers = {
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+    }
+    return StreamingResponse(sse_generator(), media_type="text/event-stream", headers=headers)
 
 @app.post("/api/generate-notes")
 async def generate_notes(
