@@ -27,8 +27,7 @@ import {
 // Pre-configured trial API key for the 1-article free trial
 const TRIAL_API_KEY = "AIzaSyBsg9u4CBQZ__MojXeP6ViI3orHNt0dCto";
 
-// Dynamic Backend URL for Production Deployments
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "https://pib-crawler-backend.onrender.com").replace(/\/$/, "");
+// Dynamic Backend URL configuration resides inside the component state
 
 export default function App() {
   // Scraper controls
@@ -41,6 +40,13 @@ export default function App() {
     return new Date().toISOString().split("T")[0];
   });
   const [workers, setWorkers] = useState(10);
+  
+  // Custom API Backend URL (Defaults to Render, can be toggled to localhost:8000 for government firewall bypass)
+  const [backendUrl, setBackendUrl] = useState(() => {
+    return localStorage.getItem("pib_backend_url") || import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+  });
+  
+  const apiBase = backendUrl.trim().replace(/\/$/, "");
   
   // Custom Gemini API Key (Empty by default, encouraging BYOK)
   const [geminiApiKey, setGeminiApiKey] = useState(() => {
@@ -87,6 +93,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("gemini_api_key", geminiApiKey);
   }, [geminiApiKey]);
+
+  // Sync custom Backend URL to localStorage
+  useEffect(() => {
+    localStorage.setItem("pib_backend_url", backendUrl);
+  }, [backendUrl]);
 
   // Sync trial articles to localStorage
   useEffect(() => {
@@ -170,7 +181,7 @@ export default function App() {
     logLine(`Starting scraper process range: ${startDate} to ${endDate}`, "system");
     logLine(`Configuring parallel thread pool size: ${workers} workers`, "system");
 
-    const sseUrl = `${API_BASE_URL}/api/scrape/stream?start=${startDate}&end=${endDate}&workers=${workers}`;
+    const sseUrl = `${apiBase}/api/scrape/stream?start=${startDate}&end=${endDate}&workers=${workers}`;
     const eventSource = new EventSource(sseUrl);
 
     eventSource.onmessage = (event) => {
@@ -251,7 +262,7 @@ export default function App() {
     };
 
     eventSource.onerror = (err) => {
-      logLine(`Network connection lost or backend offline. Please verify FastAPI is running at ${API_BASE_URL}.`, "error");
+      logLine(`Network connection lost or backend offline. Please verify FastAPI is running at ${apiBase}.`, "error");
       setStatusState("error");
       eventSource.close();
     };
@@ -284,7 +295,7 @@ export default function App() {
     setNoteGenerationError("");
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/generate-notes`, {
+      const response = await fetch(`${apiBase}/api/generate-notes`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -566,6 +577,34 @@ export default function App() {
                 </p>
               </div>
 
+              {/* Custom Backend URL Input */}
+              <div className="flex flex-col space-y-2 bg-gray-950/40 p-5 rounded-xl border border-gray-850 animate-slide-in">
+                <div className="flex justify-between items-center">
+                  <label className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center">
+                    <TerminalIcon className="w-3.5 h-3.5 mr-1.5 text-blue-400" />
+                    Backend Server URL
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setBackendUrl(backendUrl.includes("localhost") ? "https://pib-crawler-backend.onrender.com" : "http://localhost:8000")}
+                    className="text-[10px] font-black text-cyan-400 hover:text-cyan-300 transition uppercase cursor-pointer"
+                  >
+                    Use {backendUrl.includes("localhost") ? "Cloud" : "Local"}
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="Backend Server URL (e.g. http://localhost:8000)"
+                  value={backendUrl}
+                  onChange={(e) => setBackendUrl(e.target.value)}
+                  className="bg-gray-900/60 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-blue-500 transition duration-200 font-mono w-full"
+                />
+                <p className="text-[10px] text-gray-500 font-semibold leading-relaxed">
+                  ⚠️ Note: Government firewalls block requests from foreign cloud datacenters (Render). 
+                  If cloud scraping fails, run the backend server locally and set this to <code className="text-cyan-400 font-bold font-mono">http://localhost:8000</code>.
+                </p>
+              </div>
+
               {/* Mobile API Key input */}
               <div className="flex flex-col space-y-2 md:hidden bg-gray-950/40 p-4 rounded-xl border border-gray-850">
                 <label className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center">
@@ -711,7 +750,7 @@ export default function App() {
                 </h3>
                 <p className="text-sm text-gray-400 mt-2 font-semibold">
                   {statusState === "error" 
-                    ? `Verify the FastAPI server is running at ${API_BASE_URL} and the dates are formatted correctly.` 
+                    ? `Verify the FastAPI server is running at ${apiBase} and the dates are formatted correctly.` 
                     : "No announcements were discovered in the selected range. Try querying a different set of dates."}
                 </p>
               </div>
