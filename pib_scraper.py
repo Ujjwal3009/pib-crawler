@@ -61,12 +61,93 @@ class PIBScraper:
         }
         self.viewstate = ""
         self.generator = ""
+        self.proxies = []
+        self.using_proxy = False
+
+    def _fetch_indian_proxies(self):
+        """Fetches fresh Indian proxies from Proxyscrape API to bypass geo-blocking."""
+        if self.verbose:
+            log_info("Fetching fresh Indian proxies for datacenter geo-bypass...")
+        try:
+            # We fetch up to 30 fresh HTTP proxies from India (IN)
+            url = "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=5000&country=IN"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            # Use raw urllib open to avoid existing cookies or proxy handlers
+            with urllib.request.urlopen(req, context=self.ssl_context, timeout=10) as response:
+                content = response.read().decode('utf-8')
+                proxies = [p.strip() for p in content.split('\n') if p.strip()]
+                self.proxies = proxies
+                if self.verbose:
+                    log_info(f"Successfully loaded {len(self.proxies)} active Indian proxies.")
+        except Exception as e:
+            log_error(f"Failed to fetch Indian proxies: {e}")
+            self.proxies = []
         
     def _make_request(self, url, data=None):
-        """Sends an HTTP GET or POST request using the session opener."""
+        """Sends an HTTP GET or POST request. If direct connection fails, falls back to rotating Indian proxies."""
         req = urllib.request.Request(url, data=data, headers=self.headers)
-        with self.opener.open(req, timeout=30) as response:
-            return response.read().decode('utf-8')
+        
+        # 1. Try direct connection first if we haven't locked onto using a proxy yet
+        if not self.using_proxy:
+            try:
+                with self.opener.open(req, timeout=12) as response:
+                    return response.read().decode('utf-8')
+            except Exception as e:
+                log_warning(f"Direct connection failed or blocked ({e}). Activating self-healing Indian proxy rotator...")
+                self.using_proxy = True
+
+        # 2. Fetch fresh Indian proxies if the pool is empty
+        if not self.proxies:
+            self._fetch_indian_proxies()
+            
+        if not self.proxies:
+            raise ConnectionError("Direct connection failed, and fresh Indian proxy pool is empty.")
+
+        # 3. Rotate through proxies until one succeeds
+        attempts = min(len(self.proxies), 12)
+        for attempt in range(attempts):
+            proxy = self.proxies[0]
+            # Rotate proxy queue
+            self.proxies = self.proxies[1:] + [proxy]
+            
+            if self.verbose:
+                log_info(f"Routing request through Indian proxy: {proxy} (Attempt {attempt+1}/{attempts})")
+                
+            try:
+                # Build custom proxy handler mapping both http and https to the proxy
+                proxy_handler = urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
+                temp_opener = urllib.request.build_opener(
+                    urllib.request.HTTPCookieProcessor(self.cookie_jar),
+                    urllib.request.HTTPSHandler(context=self.ssl_context),
+                    proxy_handler
+                )
+                with temp_opener.open(req, timeout=8) as response:
+                    # Once a proxy succeeds, lock it as the default session opener to speed up subsequent requests!
+                    self.opener = temp_opener
+                    return response.read().decode('utf-8')
+            except Exception as proxy_err:
+                if self.verbose:
+                    log_warning(f"Proxy {proxy} failed: {proxy_err}")
+                continue
+
+        # 4. Final failover check: fetch fresh proxies and try one last time
+        log_warning("All cached Indian proxies failed. Fetching fresh batch...")
+        self._fetch_indian_proxies()
+        for proxy in self.proxies[:5]:
+            try:
+                proxy_handler = urllib.request.ProxyHandler({'http': proxy, 'https': proxy})
+                temp_opener = urllib.request.build_opener(
+                    urllib.request.HTTPCookieProcessor(self.cookie_jar),
+                    urllib.request.HTTPSHandler(context=self.ssl_context),
+                    proxy_handler
+                )
+                with temp_opener.open(req, timeout=10) as response:
+                    self.opener = temp_opener
+                    return response.read().decode('utf-8')
+            except Exception:
+                continue
+
+        raise ConnectionError("PIB Government server refused connection and all Indian proxy failovers were exhausted.")
 
     def init_session(self):
         """Fetches the landing page to establish the session cookie and extract viewstate."""
